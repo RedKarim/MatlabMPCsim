@@ -6,14 +6,13 @@ function PedestrianCrossing()
     % Sim params
     dt = 0.1;
     sim_time = 120;
-    ncars_per_lane = 10;
-    npeds = 6;
+    ncars = 8;  % reduced number of cars
+    npeds = 4;  % reduced pedestrians too
     
     % Road layout
     road_length = 1000;
     crossing_pos = road_length/2;  % pedestrian crossing at middle
-    lane1_y = 10;   % left-to-right lane
-    lane2_y = -10;  % right-to-left lane
+    lane_y = 0;   % single left-to-right lane
     crossing_width = 30;  % width of pedestrian crossing area
     
     % Pedestrian params
@@ -424,10 +423,10 @@ function updateCrossingPlot(cars, peds, crossing_pos, crossing_width, lane1_y, l
         ylabel('Lateral Position (m)');
         
         % Legend
-        plot(NaN, NaN, 's', 'Color', 'r', 'MarkerSize', 8, 'MarkerFaceColor', 'r');
-        plot(NaN, NaN, 's', 'Color', 'b', 'MarkerSize', 8, 'MarkerFaceColor', 'b');
-        plot(NaN, NaN, 'o', 'Color', 'g', 'MarkerSize', 6, 'MarkerFaceColor', 'g');
-        legend('Lane 1 (L→R)', 'Lane 2 (R→L)', 'Pedestrians', 'Location', 'upper right');
+        h1 = plot(NaN, NaN, 's', 'Color', 'r', 'MarkerSize', 8, 'MarkerFaceColor', 'r');
+        h2 = plot(NaN, NaN, 's', 'Color', 'b', 'MarkerSize', 8, 'MarkerFaceColor', 'b');
+        h3 = plot(NaN, NaN, 'o', 'Color', 'g', 'MarkerSize', 6, 'MarkerFaceColor', 'g');
+        legend([h1, h2, h3], {'Lane 1 (L→R)', 'Lane 2 (R→L)', 'Pedestrians'}, 'Location', 'northeast');
         
         grid on;
         drawnow;
