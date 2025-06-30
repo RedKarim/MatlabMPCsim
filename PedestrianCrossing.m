@@ -205,7 +205,7 @@ function data = runCrossingSim(controller, ncars, npeds, dt, sim_time, ...
         
         car_data = [];
         for n = active_cars_new
-            car_data = [car_data, cars(n).X, cars(n).V, cars(n).A, cars(n).lane];
+            car_data = [car_data, cars(n).X, cars(n).V, cars(n).A];
         end
         
         ped_data = [];
