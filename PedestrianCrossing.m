@@ -165,7 +165,7 @@ function data = runCrossingSim(controller, ncars, npeds, dt, sim_time, ...
             % Store car history
             id = cars(n).id;
             if ~isfield(CarHistory, sprintf('car%d', id))
-                CarHistory.(sprintf('car%d', id)) = struct('time', [], 'x', [], 'v', [], 'a', [], 'fuel', [], 'lane', cars(n).lane);
+                CarHistory.(sprintf('car%d', id)) = struct('time', [], 'x', [], 'v', [], 'a', [], 'fuel', []);
             end
             
             % Calculate fuel
