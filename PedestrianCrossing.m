@@ -19,18 +19,18 @@ function PedestrianCrossing()
     ped_speed = 1.5;  % m/s constant
     ped_spawn_interval = 15;  % seconds between spawns
     
-    fprintf('Cars per lane: %d\n', ncars_per_lane);
+    fprintf('Cars: %d\n', ncars);
     fprintf('Pedestrians: %d\n', npeds);
     fprintf('\n');
     
     % Run simulations
     fprintf('Running IDM crossing sim...\n');
-    IDM_data = runCrossingSim('IDM', ncars_per_lane, npeds, dt, sim_time, ...
-        crossing_pos, lane1_y, lane2_y, crossing_width, ped_speed, ped_spawn_interval);
+    IDM_data = runCrossingSim('IDM', ncars, npeds, dt, sim_time, ...
+        crossing_pos, lane_y, crossing_width, ped_speed, ped_spawn_interval);
     
     fprintf('Running MPC crossing sim...\n');
-    MPC_data = runCrossingSim('MPC', ncars_per_lane, npeds, dt, sim_time, ...
-        crossing_pos, lane1_y, lane2_y, crossing_width, ped_speed, ped_spawn_interval);
+    MPC_data = runCrossingSim('MPC', ncars, npeds, dt, sim_time, ...
+        crossing_pos, lane_y, crossing_width, ped_speed, ped_spawn_interval);
     
     % Compare results
     makeCrossingPlots(IDM_data, MPC_data);
