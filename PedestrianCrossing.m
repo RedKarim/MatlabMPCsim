@@ -187,16 +187,10 @@ function data = runCrossingSim(controller, ncars, npeds, dt, sim_time, ...
             cars(n).V = max(cars(n).V, 0);
             cars(n).A = min(max(cars(n).A, -6), 3);
             
-            if cars(n).lane == 1  % left to right
-                cars(n).X = cars(n).X + cars(n).V * dt;
-                if cars(n).X > cars(n).target_x
-                    cars(n).active = false;
-                end
-            else  % right to left
-                cars(n).X = cars(n).X - cars(n).V * dt;
-                if cars(n).X < cars(n).target_x
-                    cars(n).active = false;
-                end
+            % Left to right movement
+            cars(n).X = cars(n).X + cars(n).V * dt;
+            if cars(n).X > cars(n).target_x
+                cars(n).active = false;
             end
         end
         
