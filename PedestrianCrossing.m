@@ -291,25 +291,16 @@ function lead_idx = findLeadCar(cars, car_idx, active_cars)
     car = cars(car_idx);
     
     for n = active_cars
-        if n == car_idx || cars(n).lane ~= car.lane
+        if n == car_idx
             continue;
         end
         
-        if car.lane == 1  % left to right
-            if cars(n).X > car.X
-                dist = cars(n).X - car.X;
-                if dist < min_dist
-                    min_dist = dist;
-                    lead_idx = n;
-                end
-            end
-        else  % right to left
-            if cars(n).X < car.X
-                dist = car.X - cars(n).X;
-                if dist < min_dist
-                    min_dist = dist;
-                    lead_idx = n;
-                end
+        % Left to right - find car ahead
+        if cars(n).X > car.X
+            dist = cars(n).X - car.X;
+            if dist < min_dist
+                min_dist = dist;
+                lead_idx = n;
             end
         end
     end
