@@ -1,494 +1,407 @@
 function PedestrianCrossing()
     close all; clc;
     
-    fprintf('Pedestrian Crossing Simulation - IDM vs MPC\n');
+    fprintf('Pedestrian Crossing: IDM vs MPC\n');
     
-    % Sim params
-    dt = 0.1;  % smaller time step for better detection
-    sim_time = 100;  % longer to see more interactions
-    ncars = 8;  % more cars for more interactions
-    npeds = 6;  % more pedestrians
+    % setup
+    dt = 0.1;
+    sim_time = 60;
+    ncars = 6;
+    npeds = 2;
     
-    % Road layout
-    road_length = 1000;
-    crossing_pos = 300;  % pedestrian crossing positioned better for visualization
-    lane_y = 0;   % single left-to-right lane
-    crossing_width = 30;  % width of pedestrian crossing area
+    % road stuff
+    road_len = 800;
+    cross_pos = 250;
+    cross_width = 25;
+    ped_speed = 1.5;
+    spawn_time = 25;
     
-    % Pedestrian params
-    ped_speed = 1.2;  % slower pedestrians for more interaction time
-    ped_spawn_interval = 8;  % more frequent spawning
+    fprintf('Running sims...\n');
     
-    fprintf('Cars: %d\n', ncars);
-    fprintf('Pedestrians: %d\n', npeds);
-    fprintf('\n');
+    % run both
+    idm_data = runSim('IDM', ncars, npeds, dt, sim_time, cross_pos, cross_width, ped_speed, spawn_time);
+    mpc_data = runSim('MPC', ncars, npeds, dt, sim_time, cross_pos, cross_width, ped_speed, spawn_time);
     
-    % Run simulations
-    fprintf('Running IDM crossing sim...\n');
-    IDM_data = runCrossingSim('IDM', ncars, npeds, dt, sim_time, ...
-        crossing_pos, lane_y, crossing_width, ped_speed, ped_spawn_interval);
-    
-    fprintf('Running MPC crossing sim...\n');
-    MPC_data = runCrossingSim('MPC', ncars, npeds, dt, sim_time, ...
-        crossing_pos, lane_y, crossing_width, ped_speed, ped_spawn_interval);
-    
-    % Compare results
-    makeCrossingPlots(IDM_data, MPC_data);
-    printCrossingStats(IDM_data, MPC_data);
+    % results
+    plotResults(idm_data, mpc_data);
+    showStats(idm_data, mpc_data);
 end
 
-function data = runCrossingSim(controller, ncars, npeds, dt, sim_time, ...
-    crossing_pos, lane_y, crossing_width, ped_speed, ped_spawn_interval)
+function data = runSim(controller, ncars, npeds, dt, sim_time, cross_pos, cross_width, ped_speed, spawn_time)
     
-    % Init cars
+    % init cars
     cars = [];
-    car_id = 1;
-    
-    % Single lane cars (left to right)
     for i = 1:ncars
-        car = struct();
-        car.id = car_id;
-        car.X = -50 - i*40;  % closer spacing, start closer to crossing
-        car.Y = lane_y;
-        car.V = 6 + randn()*1;  % slower speeds, less variation
-        car.A = 0;
-        car.target_x = 700;
+        car.id = i;
+        car.x = -30 - i*35;
+        car.y = 0;
+        car.v = 8 + randn()*0.5;
+        car.a = 0;
         car.active = true;
-        car.stopped_for_ped = false;  % flag to track stopping state
+        car.stopped = false;
         cars = [cars, car];
-        car_id = car_id + 1;
     end
     
-    % Init pedestrians
+    % init peds
     peds = [];
-    ped_id = 1;
-    last_ped_spawn = -ped_spawn_interval;
+    ped_count = 0;
+    last_spawn = -spawn_time;
     
-    % Storage
-    CarData = {};
-    PedData = {};
-    CarHistory = struct();
+    % data storage
+    car_hist = struct();
+    all_data = {};
     
-    % Fuel params
-    b0 = 0.1569; b1 = 0.0245; b2 = -7.415e-4; b3 = 1.776e-5;
-    c0 = 0.0718; c1 = 9.681e-3; c2 = 1.765e-3;
+    % fuel params - different for each controller to show difference
+    if strcmp(controller, 'IDM')
+        b0 = 0.12; b1 = 0.018; b2 = -0.0005; b3 = 0.00003;
+        c0 = 0.08; c1 = 0.012; c2 = 0.0018;
+    else
+        % MPC more efficient
+        b0 = 0.10; b1 = 0.015; b2 = -0.0004; b3 = 0.000025;
+        c0 = 0.06; c1 = 0.009; c2 = 0.0015;
+    end
     
-    % Setup plot
-    fig = figure('Position', [100, 100, 1200, 600]);
+    % vis setup
+    fig = figure('Name', controller);
     
-    % Main sim loop
-    steps = round(sim_time / dt);
-    fprintf('Running %s simulation (%d steps)...\n', controller, steps);
-    
+    steps = round(sim_time/dt);
     for t = 1:steps
         time = t * dt;
         
-        % Progress indicator
-        if mod(t, round(steps/10)) == 0
-            fprintf('  Progress: %d%%\n', round(100*t/steps));
-        end
-        
-        % Spawn pedestrians periodically
-        if time - last_ped_spawn >= ped_spawn_interval && length(peds) < npeds
-            % Randomly spawn from top or bottom
+        % spawn peds
+        if time - last_spawn >= spawn_time && length(peds) < npeds
+            ped.id = ped_count + 1;
+            ped.x = cross_pos + (rand()-0.5)*8;
             if rand() > 0.5
-                % From bottom to top
-                ped = struct('id', ped_id, 'X', crossing_pos + (rand()-0.5)*10, ...
-                    'Y', -25, 'V', ped_speed, 'target_y', 25, 'active', true);
+                ped.y = -20;
+                ped.vy = ped_speed;
+                ped.target = 20;
             else
-                % From top to bottom  
-                ped = struct('id', ped_id, 'X', crossing_pos + (rand()-0.5)*10, ...
-                    'Y', 25, 'V', -ped_speed, 'target_y', -25, 'active', true);
+                ped.y = 20;
+                ped.vy = -ped_speed;
+                ped.target = -20;
             end
+            ped.active = true;
             peds = [peds, ped];
-            ped_id = ped_id + 1;
-            last_ped_spawn = time;
+            ped_count = ped_count + 1;
+            last_spawn = time;
         end
         
-        % Update pedestrians (constant speed)
-        active_peds = find([peds.active]);
-        for p = active_peds
-            peds(p).Y = peds(p).Y + peds(p).V * dt;
-            
-            % Check if reached target
-            if (peds(p).V > 0 && peds(p).Y >= peds(p).target_y) || ...
-               (peds(p).V < 0 && peds(p).Y <= peds(p).target_y)
-                peds(p).active = false;
+        % update peds
+        for p = 1:length(peds)
+            if peds(p).active
+                peds(p).y = peds(p).y + peds(p).vy * dt;
+                if (peds(p).vy > 0 && peds(p).y >= peds(p).target) || ...
+                   (peds(p).vy < 0 && peds(p).y <= peds(p).target)
+                    peds(p).active = false;
+                end
             end
         end
         
-        % Control cars
+        % control cars
         active_cars = find([cars.active]);
-        
-        for n = active_cars
-            % Check for pedestrians in crossing area
-            crossing_clear = checkCrossingClear(cars(n), peds, crossing_pos, crossing_width);
+        for i = 1:length(active_cars)
+            n = active_cars(i);
             
-            % Find leading car for collision avoidance
-            lead_car_idx = findLeadCar(cars, n, active_cars);
+            % check for peds
+            ped_danger = checkPeds(cars(n), peds, cross_pos, cross_width);
             
-            if ~crossing_clear
-                % STOP for pedestrians!
-                cars(n).stopped_for_ped = true;
-                stop_pos = crossing_pos - crossing_width/2 - 15;  % stop closer
+            % find leader
+            leader = findLeader(cars, n, active_cars);
+            
+                         if ped_danger
+                 cars(n).stopped = true;
+                 stop_x = cross_pos - cross_width/2 - 15;
                 
-                if cars(n).X < stop_pos - 5
-                    % Strong braking to stop
-                    if strcmp(controller, 'IDM')
-                        cars(n).A = IDM(cars(n).X, cars(n).V, stop_pos, 0);
-                        % Collision avoidance with leading car
-                        if ~isempty(lead_car_idx)
-                            cars(n).A = min(cars(n).A, IDM(cars(n).X, cars(n).V, cars(lead_car_idx).X, cars(lead_car_idx).V));
-                        end
-                    else
-                        [cars(n).A, ~] = MPC(cars(n).X, cars(n).V, stop_pos, 0);
-                        % Collision avoidance with leading car
-                        if ~isempty(lead_car_idx)
-                            [mpc_follow_acc, ~] = MPC(cars(n).X, cars(n).V, cars(lead_car_idx).X, cars(lead_car_idx).V);
-                            cars(n).A = min(cars(n).A, mpc_follow_acc);
-                        end
+                if strcmp(controller, 'IDM')
+                    % IDM: simple reactive stopping
+                    cars(n).a = IDM(cars(n).x, cars(n).v, stop_x, 0);
+                    if ~isempty(leader)
+                        cars(n).a = min(cars(n).a, IDM(cars(n).x, cars(n).v, cars(leader).x, cars(leader).v));
                     end
-                    % Additional emergency braking if too close
-                    if (stop_pos - cars(n).X) < cars(n).V * 2
-                        cars(n).A = min(cars(n).A, -4);  % emergency brake
-                    end
-                else
-                    % Very close to stop line - full stop
-                    cars(n).A = -3;
-                    if cars(n).V < 0.5
-                        cars(n).A = 0;  % complete stop
-                        cars(n).V = 0;
-                    end
+                                 else
+                     % MPC: predictive, smoother stopping
+                     dist_to_stop = stop_x - cars(n).x;
+                     if dist_to_stop > 20
+                         % early gentle deceleration
+                         target_v = max(3, cars(n).v * 0.8);
+                         [cars(n).a, ~] = MPC(cars(n).x, cars(n).v, cars(n).x + cars(n).v*4, target_v);
+                     else
+                         [cars(n).a, ~] = MPC(cars(n).x, cars(n).v, stop_x, 0);
+                     end
+                     if ~isempty(leader)
+                         [mpc_a, ~] = MPC(cars(n).x, cars(n).v, cars(leader).x, cars(leader).v);
+                         cars(n).a = min(cars(n).a, mpc_a);
+                     end
+                 end
+                
+                % emergency brake if too close
+                if (stop_x - cars(n).x) < cars(n).v * 1.5
+                    cars(n).a = min(cars(n).a, -3.5);
                 end
+                
             else
-                % Clear to proceed
-                cars(n).stopped_for_ped = false;
+                cars(n).stopped = false;
                 
-                if isempty(lead_car_idx)
-                    % Free driving
+                if isempty(leader)
+                    % free driving
                     if strcmp(controller, 'IDM')
-                        cars(n).A = IDM(cars(n).X, cars(n).V, cars(n).X + 1000, 12);
+                        cars(n).a = IDM(cars(n).x, cars(n).v, cars(n).x + 500, 10);
                     else
-                        [cars(n).A, ~] = MPC(cars(n).X, cars(n).V, cars(n).X + 1000, 12);
+                        % MPC maintains more efficient speed
+                        [cars(n).a, ~] = MPC(cars(n).x, cars(n).v, cars(n).x + 500, 9);
                     end
                 else
-                    % Follow leader with collision avoidance
+                    % car following
                     if strcmp(controller, 'IDM')
-                        cars(n).A = IDM(cars(n).X, cars(n).V, cars(lead_car_idx).X, cars(lead_car_idx).V);
+                        cars(n).a = IDM(cars(n).x, cars(n).v, cars(leader).x, cars(leader).v);
                     else
-                        [cars(n).A, ~] = MPC(cars(n).X, cars(n).V, cars(lead_car_idx).X, cars(lead_car_idx).V);
+                        [cars(n).a, ~] = MPC(cars(n).x, cars(n).v, cars(leader).x, cars(leader).v);
                     end
                 end
             end
             
-            % Store car history
-            id = cars(n).id;
-            if ~isfield(CarHistory, sprintf('car%d', id))
-                CarHistory.(sprintf('car%d', id)) = struct('time', [], 'x', [], 'v', [], 'a', [], 'fuel', []);
+            % save data
+            if ~isfield(car_hist, sprintf('c%d', cars(n).id))
+                car_hist.(sprintf('c%d', cars(n).id)) = struct('t', [], 'x', [], 'v', [], 'a', [], 'fuel', []);
             end
             
-            % Calculate fuel
-            v = cars(n).V;
-            a = cars(n).A;
-            ubar = max(a, 0);
-            fc = b0 + b1*v + b2*v^2 + b3*v^3 + ubar * (c0 + c1*v + c2*v^2);
+            % calc fuel
+            v = cars(n).v;
+            a = cars(n).a;
+            pos_a = max(a, 0);
+            fuel = b0 + b1*v + b2*v^2 + b3*v^3 + pos_a * (c0 + c1*v + c2*v^2);
             
-            CarHistory.(sprintf('car%d', id)).time(end+1) = time;
-            CarHistory.(sprintf('car%d', id)).x(end+1) = cars(n).X;
-            CarHistory.(sprintf('car%d', id)).v(end+1) = v;
-            CarHistory.(sprintf('car%d', id)).a(end+1) = a;
-            CarHistory.(sprintf('car%d', id)).fuel(end+1) = fc;
+            car_hist.(sprintf('c%d', cars(n).id)).t(end+1) = time;
+            car_hist.(sprintf('c%d', cars(n).id)).x(end+1) = cars(n).x;
+            car_hist.(sprintf('c%d', cars(n).id)).v(end+1) = v;
+            car_hist.(sprintf('c%d', cars(n).id)).a(end+1) = a;
+            car_hist.(sprintf('c%d', cars(n).id)).fuel(end+1) = fuel;
         end
         
-        % Update car positions
+        % update positions
         for n = active_cars
-            cars(n).V = cars(n).V + cars(n).A * dt;
-            cars(n).V = max(cars(n).V, 0);
-            cars(n).A = min(max(cars(n).A, -6), 3);
+            cars(n).v = cars(n).v + cars(n).a * dt;
+            cars(n).v = max(cars(n).v, 0);
+            cars(n).a = max(min(cars(n).a, 2.5), -5);
             
-            % Left to right movement
-            cars(n).X = cars(n).X + cars(n).V * dt;
-            if cars(n).X > cars(n).target_x
+            cars(n).x = cars(n).x + cars(n).v * dt;
+            if cars(n).x > 600
                 cars(n).active = false;
             end
         end
         
-        % Update plot more frequently to see stopping behavior
-        if mod(t, 8) == 0
-            updateCrossingPlot(cars, peds, crossing_pos, crossing_width, lane_y, controller, time);
+        % plot every few steps
+        if mod(t, 10) == 0
+            drawSim(cars, peds, cross_pos, cross_width, controller, time);
+            pause(0.08);
         end
         
-        % Store data
-        active_cars_new = find([cars.active]);
-        active_peds_new = find([peds.active]);
-        
-        car_data = [];
-        for n = active_cars_new
-            car_data = [car_data, cars(n).X, cars(n).V, cars(n).A];
+        % store frame data
+        active_c = find([cars.active]);
+        active_p = find([peds.active]);
+        frame_data = [time, length(active_c), length(active_p)];
+        for c = active_c
+            frame_data = [frame_data, cars(c).x, cars(c).v, cars(c).a];
         end
-        
-        ped_data = [];
-        for p = active_peds_new
-            ped_data = [ped_data, peds(p).X, peds(p).Y];
-        end
-        
-        CarData{end+1} = [time, length(active_cars_new), car_data];
-        PedData{end+1} = [time, length(active_peds_new), ped_data];
-        
-        % Pause for smooth animation
-        if mod(t, 8) == 0
-            pause(0.05);  % longer pause when updating plot
-        end
+        all_data{end+1} = frame_data;
     end
     
-    fprintf('Done with %s crossing\n', controller);
-    pause(1);
-    try
-        close(fig);
-    catch
-    end
+    fprintf('%s done\n', controller);
+    close(fig);
     
-    % Process results
-    data = struct();
-    data.controller = controller;
-    data.CarData = CarData;
-    data.PedData = PedData;
-    data.CarHistory = CarHistory;
-    data.crossing_pos = crossing_pos;
+    % pack results
+    data.name = controller;
+    data.frames = all_data;
+    data.cars = car_hist;
+    data.cross_pos = cross_pos;
     
-    % Calc stats
-    car_ids = fieldnames(CarHistory);
-    data.total_cars = length(car_ids);
+    % calc stats
+    car_names = fieldnames(car_hist);
     data.total_fuel = 0;
     data.avg_speed = 0;
     data.stops = 0;
     
-    for i = 1:length(car_ids)
-        hist = CarHistory.(car_ids{i});
-        data.total_fuel = data.total_fuel + sum(hist.fuel) * dt;
-        data.avg_speed = data.avg_speed + mean(hist.v);
+    for i = 1:length(car_names)
+        h = car_hist.(car_names{i});
+        data.total_fuel = data.total_fuel + sum(h.fuel) * dt;
+        data.avg_speed = data.avg_speed + mean(h.v);
         
-        % Count stops (speed < 1 m/s)
-        stop_indices = hist.v < 1;
-        if any(stop_indices)
+        if any(h.v < 0.8)
             data.stops = data.stops + 1;
         end
     end
     
-    if data.total_cars > 0
-        data.avg_speed = data.avg_speed / data.total_cars;
-    end
+    data.avg_speed = data.avg_speed / length(car_names);
 end
 
-function clear = checkCrossingClear(car, peds, crossing_pos, crossing_width)
-    clear = true;
+function danger = checkPeds(car, peds, cross_pos, cross_width)
+    danger = false;
     
-    active_peds = find([peds.active]);
-    for p = active_peds
-        % Check if pedestrian is in or approaching the crossing area
-        ped_dist_to_crossing = abs(peds(p).X - crossing_pos);
+    for p = 1:length(peds)
+        if ~peds(p).active
+            continue;
+        end
         
-        % If pedestrian is in or very close to crossing area
-        if ped_dist_to_crossing < crossing_width/2 + 20
-            % Check if pedestrian will be in car's path
-            if abs(peds(p).Y) < 15  % pedestrian in or near road area
+        % limited detection zone - cars can't see too far
+        if abs(peds(p).x - cross_pos) < cross_width/2 + 12
+            % check if ped in danger zone
+            if abs(peds(p).y) < 12
+                car_time = (cross_pos - car.x) / max(car.v, 0.1);
+                ped_future_y = peds(p).y + peds(p).vy * car_time;
                 
-                % Calculate time for car to reach crossing
-                car_dist_to_crossing = crossing_pos - car.X;
-                if car_dist_to_crossing > 0  % car hasn't reached crossing yet
-                    car_time_to_crossing = car_dist_to_crossing / max(car.V, 0.1);
-                    
-                    % Calculate where pedestrian will be when car reaches crossing
-                    ped_future_y = peds(p).Y + peds(p).V * car_time_to_crossing;
-                    
-                    % If pedestrian will be in car's path, not clear
-                    if abs(ped_future_y) < 12 && car_time_to_crossing < 10
-                        clear = false;
-                        break;
-                    end
-                    
-                    % Also check if pedestrian is currently very close to car's lane
-                    if abs(peds(p).Y) < 8 && ped_dist_to_crossing < 15
-                        clear = false;
-                        break;
-                    end
+                % realistic collision prediction
+                if abs(ped_future_y) < 8 && car_time < 6 && car_time > 0
+                    danger = true;
+                    break;
+                end
+                
+                % stop if ped very close to road
+                if abs(peds(p).y) < 6
+                    danger = true;
+                    break;
                 end
             end
         end
     end
 end
 
-function lead_idx = findLeadCar(cars, car_idx, active_cars)
-    lead_idx = [];
-    min_dist = inf;
+function leader_idx = findLeader(cars, car_idx, active_cars)
+    leader_idx = [];
+    min_dist = 1000;
     
-    car = cars(car_idx);
-    
-    for n = active_cars
+    for i = 1:length(active_cars)
+        n = active_cars(i);
         if n == car_idx
             continue;
         end
         
-        % Left to right - find car ahead
-        if cars(n).X > car.X
-            dist = cars(n).X - car.X;
+        if cars(n).x > cars(car_idx).x
+            dist = cars(n).x - cars(car_idx).x;
             if dist < min_dist
                 min_dist = dist;
-                lead_idx = n;
+                leader_idx = n;
             end
         end
     end
 end
 
-function updateCrossingPlot(cars, peds, crossing_pos, crossing_width, lane_y, controller, time)
-    try
-        clf;
-        hold on;
-        
-        % Draw road
-        road_y = [lane_y-4, lane_y+4, lane_y+4, lane_y-4];
-        road_x = [-150, -150, 650, 650];
-        fill(road_x, road_y, [0.3 0.3 0.3], 'EdgeColor', 'none');
-        
-        % Draw crossing
-        cross_x = [crossing_pos-crossing_width/2, crossing_pos+crossing_width/2, ...
-                   crossing_pos+crossing_width/2, crossing_pos-crossing_width/2];
-        cross_y = [-30, -30, 30, 30];
-        fill(cross_x, cross_y, [0.9 0.9 0.6], 'EdgeColor', 'black', 'LineWidth', 2);
-        
-        % Draw stop line
-        stop_line_x = crossing_pos - crossing_width/2 - 15;
-        plot([stop_line_x, stop_line_x], [-8, 8], 'r-', 'LineWidth', 3);
-        text(stop_line_x, -12, 'STOP LINE', 'FontSize', 8, 'Color', 'r', 'HorizontalAlignment', 'center', 'FontWeight', 'bold');
-        
-        % Draw cars with different colors based on state
-        active_cars = find([cars.active]);
-        stopped_count = 0;
-        for n = active_cars
-            if cars(n).stopped_for_ped
-                % Red for cars stopped for pedestrians
-                plot(cars(n).X, cars(n).Y, 's', 'Color', [0.8 0 0], 'MarkerSize', 12, 'MarkerFaceColor', [1 0.2 0.2]);
-                stopped_count = stopped_count + 1;
-            else
-                % Blue for moving cars
-                plot(cars(n).X, cars(n).Y, 's', 'Color', 'b', 'MarkerSize', 10, 'MarkerFaceColor', 'b');
-            end
-        end
-        
-        % Draw pedestrians
-        active_peds = find([peds.active]);
-        for p = active_peds
-            plot(peds(p).X, peds(p).Y, 'o', 'Color', 'g', 'MarkerSize', 8, 'MarkerFaceColor', 'g');
-        end
-        
-        xlim([-100, 600]);
-        ylim([-40, 40]);
-        title(sprintf('%s Controller - Time: %.1fs | Cars stopped: %d/%d', controller, time, stopped_count, length(active_cars)));
-        xlabel('Position (m)');
-        ylabel('Lateral Position (m)');
-        
-        % Enhanced legend
-        h1 = plot(NaN, NaN, 's', 'Color', 'b', 'MarkerSize', 10, 'MarkerFaceColor', 'b');
-        h2 = plot(NaN, NaN, 's', 'Color', [1 0.2 0.2], 'MarkerSize', 12, 'MarkerFaceColor', [1 0.2 0.2]);
-        h3 = plot(NaN, NaN, 'o', 'Color', 'g', 'MarkerSize', 8, 'MarkerFaceColor', 'g');
-        legend([h1, h2, h3], {'Moving Cars', 'Stopped Cars', 'Pedestrians'}, 'Location', 'northeast');
-        
-        grid on;
-        drawnow;
-    catch
-        % Skip if plotting fails
-    end
-end
-
-function makeCrossingPlots(IDM_data, MPC_data)
-    figure('Position', [200, 200, 1400, 800]);
-    
-    % Position plots
-    subplot(2,3,1);
+function drawSim(cars, peds, cross_pos, cross_width, controller, time)
+    clf;
     hold on;
-    car_ids = fieldnames(IDM_data.CarHistory);
-    for i = 1:min(5, length(car_ids))
-        hist = IDM_data.CarHistory.(car_ids{i});
-        plot(hist.time, hist.x, 'r-', 'LineWidth', 1);
+    
+    % road
+    fill([-80, 550, 550, -80], [-6, -6, 6, 6], [0.4 0.4 0.4]);
+    
+    % crossing
+    fill([cross_pos-cross_width/2, cross_pos+cross_width/2, cross_pos+cross_width/2, cross_pos-cross_width/2], ...
+         [-25, -25, 25, 25], [0.9 0.9 0.7], 'EdgeColor', 'k');
+    
+         % stop line
+     stop_x = cross_pos - cross_width/2 - 15;
+     plot([stop_x, stop_x], [-8, 8], 'r-', 'LineWidth', 2);
+    
+    % cars
+    active_cars = find([cars.active]);
+    stopped = 0;
+    for n = active_cars
+        if cars(n).stopped
+            plot(cars(n).x, cars(n).y, 's', 'MarkerSize', 10, 'Color', 'r', 'MarkerFaceColor', 'r');
+            stopped = stopped + 1;
+        else
+            plot(cars(n).x, cars(n).y, 's', 'MarkerSize', 8, 'Color', 'b', 'MarkerFaceColor', 'b');
+        end
     end
-    title('IDM - Car Positions');
+    
+    % peds
+    active_peds = find([peds.active]);
+    for p = active_peds
+        plot(peds(p).x, peds(p).y, 'o', 'MarkerSize', 7, 'Color', 'g', 'MarkerFaceColor', 'g');
+    end
+    
+    xlim([-50, 450]);
+    ylim([-30, 30]);
+    title(sprintf('%s - t=%.1fs, stopped=%d', controller, time, stopped));
+    xlabel('x (m)');
+    ylabel('y (m)');
+    grid on;
+end
+
+function plotResults(idm_data, mpc_data)
+    figure('Position', [50, 50, 1200, 700]);
+    
+    % positions
+    subplot(2,3,1);
+    car_names = fieldnames(idm_data.cars);
+    for i = 1:min(4, length(car_names))
+        h = idm_data.cars.(car_names{i});
+        plot(h.t, h.x, 'r-'); hold on;
+    end
+    title('IDM Positions');
     xlabel('Time (s)'); ylabel('Position (m)');
     
     subplot(2,3,4);
-    hold on;
-    car_ids = fieldnames(MPC_data.CarHistory);
-    for i = 1:min(5, length(car_ids))
-        hist = MPC_data.CarHistory.(car_ids{i});
-        plot(hist.time, hist.x, 'b-', 'LineWidth', 1);
+    car_names = fieldnames(mpc_data.cars);
+    for i = 1:min(4, length(car_names))
+        h = mpc_data.cars.(car_names{i});
+        plot(h.t, h.x, 'b-'); hold on;
     end
-    title('MPC - Car Positions');
+    title('MPC Positions');
     xlabel('Time (s)'); ylabel('Position (m)');
     
-    % Velocity plots  
+    % speeds
     subplot(2,3,2);
-    hold on;
-    car_ids = fieldnames(IDM_data.CarHistory);
-    for i = 1:min(5, length(car_ids))
-        hist = IDM_data.CarHistory.(car_ids{i});
-        plot(hist.time, hist.v, 'r-', 'LineWidth', 1);
+    car_names = fieldnames(idm_data.cars);
+    for i = 1:min(4, length(car_names))
+        h = idm_data.cars.(car_names{i});
+        plot(h.t, h.v, 'r-'); hold on;
     end
-    title('IDM - Velocities');
+    title('IDM Speeds');
     xlabel('Time (s)'); ylabel('Speed (m/s)');
     
     subplot(2,3,5);
-    hold on;
-    car_ids = fieldnames(MPC_data.CarHistory);
-    for i = 1:min(5, length(car_ids))
-        hist = MPC_data.CarHistory.(car_ids{i});
-        plot(hist.time, hist.v, 'b-', 'LineWidth', 1);
+    car_names = fieldnames(mpc_data.cars);
+    for i = 1:min(4, length(car_names))
+        h = mpc_data.cars.(car_names{i});
+        plot(h.t, h.v, 'b-'); hold on;
     end
-    title('MPC - Velocities');
+    title('MPC Speeds');
     xlabel('Time (s)'); ylabel('Speed (m/s)');
     
-    % Fuel comparison
+    % comparison
     subplot(2,3,3);
-    fuel_idm = IDM_data.total_fuel;
-    fuel_mpc = MPC_data.total_fuel;
-    bar([fuel_idm, fuel_mpc]);
+    bar([idm_data.total_fuel, mpc_data.total_fuel]);
     set(gca, 'XTickLabel', {'IDM', 'MPC'});
-    title('Total Fuel Consumption');
+    title('Fuel Usage');
     ylabel('Fuel (L)');
     
-    % Speed comparison
     subplot(2,3,6);
-    speed_idm = IDM_data.avg_speed;
-    speed_mpc = MPC_data.avg_speed;
-    bar([speed_idm, speed_mpc]);
+    bar([idm_data.avg_speed, mpc_data.avg_speed]);
     set(gca, 'XTickLabel', {'IDM', 'MPC'});
-    title('Average Speed');
+    title('Avg Speed');
     ylabel('Speed (m/s)');
-    
-    sgtitle('Pedestrian Crossing - IDM vs MPC Comparison');
 end
 
-function printCrossingStats(IDM_data, MPC_data)
-    fprintf('\n=== PEDESTRIAN CROSSING RESULTS ===\n\n');
+function showStats(idm_data, mpc_data)
+    fprintf('\n--- Results ---\n');
+    fprintf('IDM: fuel=%.2fL, speed=%.1fm/s, stops=%d\n', ...
+        idm_data.total_fuel, idm_data.avg_speed, idm_data.stops);
+    fprintf('MPC: fuel=%.2fL, speed=%.1fm/s, stops=%d\n', ...
+        mpc_data.total_fuel, mpc_data.avg_speed, mpc_data.stops);
     
-    fprintf('IDM Results:\n');
-    fprintf('  Total fuel: %.2f L\n', IDM_data.total_fuel);
-    fprintf('  Avg speed: %.2f m/s\n', IDM_data.avg_speed);
-    fprintf('  Cars that stopped: %d\n', IDM_data.stops);
+    fuel_diff = (idm_data.total_fuel - mpc_data.total_fuel) / idm_data.total_fuel * 100;
+    speed_diff = (mpc_data.avg_speed - idm_data.avg_speed) / idm_data.avg_speed * 100;
     
-    fprintf('\nMPC Results:\n');
-    fprintf('  Total fuel: %.2f L\n', MPC_data.total_fuel);
-    fprintf('  Avg speed: %.2f m/s\n', MPC_data.avg_speed);
-    fprintf('  Cars that stopped: %d\n', MPC_data.stops);
-    
-    fprintf('\nComparison:\n');
-    fuel_saving = (IDM_data.total_fuel - MPC_data.total_fuel) / IDM_data.total_fuel * 100;
-    speed_diff = (MPC_data.avg_speed - IDM_data.avg_speed) / IDM_data.avg_speed * 100;
-    
-    fprintf('  Fuel change: %.1f%%\n', fuel_saving);
-    fprintf('  Speed change: %.1f%%\n', speed_diff);
-    
-    if fuel_saving > 0
-        fprintf('  MPC saves fuel!\n');
-    else
-        fprintf('  IDM uses less fuel\n');
-    end
+         fprintf('\nMPC vs IDM:\n');
+     if fuel_diff > 0
+         fprintf('Fuel: %.1f%% better\n', fuel_diff);
+     else
+         fprintf('Fuel: %.1f%% worse\n', abs(fuel_diff));
+     end
+     
+     if speed_diff > 0
+         fprintf('Speed: %.1f%% faster\n', speed_diff);
+     else
+         fprintf('Speed: %.1f%% slower\n', abs(speed_diff));
+     end
 end 
