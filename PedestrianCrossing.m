@@ -124,6 +124,9 @@ function data = runCrossingSim(controller, ncars, npeds, dt, sim_time, ...
             % Check for pedestrians in crossing area
             crossing_clear = checkCrossingClear(cars(n), peds, crossing_pos, crossing_width);
             
+            % Find leading car for collision avoidance
+            lead_car_idx = findLeadCar(cars, n, active_cars);
+            
             if ~crossing_clear
                 % STOP for pedestrians!
                 cars(n).stopped_for_ped = true;
@@ -133,8 +136,17 @@ function data = runCrossingSim(controller, ncars, npeds, dt, sim_time, ...
                     % Strong braking to stop
                     if strcmp(controller, 'IDM')
                         cars(n).A = IDM(cars(n).X, cars(n).V, stop_pos, 0);
+                        % Collision avoidance with leading car
+                        if ~isempty(lead_car_idx)
+                            cars(n).A = min(cars(n).A, IDM(cars(n).X, cars(n).V, cars(lead_car_idx).X, cars(lead_car_idx).V));
+                        end
                     else
                         [cars(n).A, ~] = MPC(cars(n).X, cars(n).V, stop_pos, 0);
+                        % Collision avoidance with leading car
+                        if ~isempty(lead_car_idx)
+                            [mpc_follow_acc, ~] = MPC(cars(n).X, cars(n).V, cars(lead_car_idx).X, cars(lead_car_idx).V);
+                            cars(n).A = min(cars(n).A, mpc_follow_acc);
+                        end
                     end
                     % Additional emergency braking if too close
                     if (stop_pos - cars(n).X) < cars(n).V * 2
@@ -151,7 +163,6 @@ function data = runCrossingSim(controller, ncars, npeds, dt, sim_time, ...
             else
                 % Clear to proceed
                 cars(n).stopped_for_ped = false;
-                lead_car_idx = findLeadCar(cars, n, active_cars);
                 
                 if isempty(lead_car_idx)
                     % Free driving
@@ -161,7 +172,7 @@ function data = runCrossingSim(controller, ncars, npeds, dt, sim_time, ...
                         [cars(n).A, ~] = MPC(cars(n).X, cars(n).V, cars(n).X + 1000, 12);
                     end
                 else
-                    % Follow leader
+                    % Follow leader with collision avoidance
                     if strcmp(controller, 'IDM')
                         cars(n).A = IDM(cars(n).X, cars(n).V, cars(lead_car_idx).X, cars(lead_car_idx).V);
                     else
