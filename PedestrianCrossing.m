@@ -117,55 +117,28 @@ function data = runCrossingSim(controller, ncars, npeds, dt, sim_time, ...
             crossing_clear = checkCrossingClear(cars(n), peds, crossing_pos, crossing_width);
             
             if ~crossing_clear
-                % Stop before crossing
-                if cars(n).lane == 1  % left to right
-                    stop_pos = crossing_pos - crossing_width/2 - 5;
-                    if cars(n).X < stop_pos
-                        if strcmp(controller, 'IDM')
-                            cars(n).A = IDM(cars(n).X, cars(n).V, stop_pos, 0);
-                        else
-                            [cars(n).A, ~] = MPC(cars(n).X, cars(n).V, stop_pos, 0);
-                        end
+                % Stop before crossing (left to right)
+                stop_pos = crossing_pos - crossing_width/2 - 5;
+                if cars(n).X < stop_pos
+                    if strcmp(controller, 'IDM')
+                        cars(n).A = IDM(cars(n).X, cars(n).V, stop_pos, 0);
                     else
-                        % Already in crossing, continue
-                        lead_car_idx = findLeadCar(cars, n, active_cars);
-                        if isempty(lead_car_idx)
-                            if strcmp(controller, 'IDM')
-                                cars(n).A = IDM(cars(n).X, cars(n).V, cars(n).X + 1000, 15);
-                            else
-                                [cars(n).A, ~] = MPC(cars(n).X, cars(n).V, cars(n).X + 1000, 15);
-                            end
-                        else
-                            if strcmp(controller, 'IDM')
-                                cars(n).A = IDM(cars(n).X, cars(n).V, cars(lead_car_idx).X, cars(lead_car_idx).V);
-                            else
-                                [cars(n).A, ~] = MPC(cars(n).X, cars(n).V, cars(lead_car_idx).X, cars(lead_car_idx).V);
-                            end
-                        end
+                        [cars(n).A, ~] = MPC(cars(n).X, cars(n).V, stop_pos, 0);
                     end
-                else  % right to left
-                    stop_pos = crossing_pos + crossing_width/2 + 5;
-                    if cars(n).X > stop_pos
+                else
+                    % Already in crossing, continue normally
+                    lead_car_idx = findLeadCar(cars, n, active_cars);
+                    if isempty(lead_car_idx)
                         if strcmp(controller, 'IDM')
-                            cars(n).A = IDM(cars(n).X, cars(n).V, stop_pos, 0);
+                            cars(n).A = IDM(cars(n).X, cars(n).V, cars(n).X + 1000, 15);
                         else
-                            [cars(n).A, ~] = MPC(cars(n).X, cars(n).V, stop_pos, 0);
+                            [cars(n).A, ~] = MPC(cars(n).X, cars(n).V, cars(n).X + 1000, 15);
                         end
                     else
-                        % Already in crossing, continue
-                        lead_car_idx = findLeadCar(cars, n, active_cars);
-                        if isempty(lead_car_idx)
-                            if strcmp(controller, 'IDM')
-                                cars(n).A = IDM(cars(n).X, cars(n).V, cars(n).X - 1000, 15);
-                            else
-                                [cars(n).A, ~] = MPC(cars(n).X, cars(n).V, cars(n).X - 1000, 15);
-                            end
+                        if strcmp(controller, 'IDM')
+                            cars(n).A = IDM(cars(n).X, cars(n).V, cars(lead_car_idx).X, cars(lead_car_idx).V);
                         else
-                            if strcmp(controller, 'IDM')
-                                cars(n).A = IDM(cars(n).X, cars(n).V, cars(lead_car_idx).X, cars(lead_car_idx).V);
-                            else
-                                [cars(n).A, ~] = MPC(cars(n).X, cars(n).V, cars(lead_car_idx).X, cars(lead_car_idx).V);
-                            end
+                            [cars(n).A, ~] = MPC(cars(n).X, cars(n).V, cars(lead_car_idx).X, cars(lead_car_idx).V);
                         end
                     end
                 end
@@ -174,18 +147,10 @@ function data = runCrossingSim(controller, ncars, npeds, dt, sim_time, ...
                 lead_car_idx = findLeadCar(cars, n, active_cars);
                 if isempty(lead_car_idx)
                     % Free driving
-                    if cars(n).lane == 1
-                        if strcmp(controller, 'IDM')
-                            cars(n).A = IDM(cars(n).X, cars(n).V, cars(n).X + 1000, 15);
-                        else
-                            [cars(n).A, ~] = MPC(cars(n).X, cars(n).V, cars(n).X + 1000, 15);
-                        end
+                    if strcmp(controller, 'IDM')
+                        cars(n).A = IDM(cars(n).X, cars(n).V, cars(n).X + 1000, 15);
                     else
-                        if strcmp(controller, 'IDM')
-                            cars(n).A = IDM(cars(n).X, cars(n).V, cars(n).X - 1000, 15);
-                        else
-                            [cars(n).A, ~] = MPC(cars(n).X, cars(n).V, cars(n).X - 1000, 15);
-                        end
+                        [cars(n).A, ~] = MPC(cars(n).X, cars(n).V, cars(n).X + 1000, 15);
                     end
                 else
                     % Follow leader
