@@ -306,56 +306,44 @@ function lead_idx = findLeadCar(cars, car_idx, active_cars)
     end
 end
 
-function updateCrossingPlot(cars, peds, crossing_pos, crossing_width, lane1_y, lane2_y, controller, time)
+function updateCrossingPlot(cars, peds, crossing_pos, crossing_width, lane_y, controller, time)
     try
         clf;
         hold on;
         
         % Draw road
-        road_y = [lane1_y-3, lane1_y+3, lane1_y+3, lane1_y-3];
+        road_y = [lane_y-4, lane_y+4, lane_y+4, lane_y-4];
         road_x = [-300, -300, 1300, 1300];
-        fill(road_x, road_y, [0.3 0.3 0.3], 'EdgeColor', 'none');
-        
-        road_y = [lane2_y-3, lane2_y+3, lane2_y+3, lane2_y-3];
         fill(road_x, road_y, [0.3 0.3 0.3], 'EdgeColor', 'none');
         
         % Draw crossing
         cross_x = [crossing_pos-crossing_width/2, crossing_pos+crossing_width/2, ...
                    crossing_pos+crossing_width/2, crossing_pos-crossing_width/2];
-        cross_y = [-50, -50, 50, 50];
+        cross_y = [-30, -30, 30, 30];
         fill(cross_x, cross_y, [0.9 0.9 0.6], 'EdgeColor', 'black', 'LineWidth', 2);
-        
-        % Draw lane lines
-        plot([-300, 1300], [0, 0], 'w--', 'LineWidth', 2);
         
         % Draw cars
         active_cars = find([cars.active]);
         for n = active_cars
-            if cars(n).lane == 1
-                color = 'r';
-            else
-                color = 'b';
-            end
-            plot(cars(n).X, cars(n).Y, 's', 'Color', color, 'MarkerSize', 8, 'MarkerFaceColor', color);
+            plot(cars(n).X, cars(n).Y, 's', 'Color', 'r', 'MarkerSize', 10, 'MarkerFaceColor', 'r');
         end
         
         % Draw pedestrians
         active_peds = find([peds.active]);
         for p = active_peds
-            plot(peds(p).X, peds(p).Y, 'o', 'Color', 'g', 'MarkerSize', 6, 'MarkerFaceColor', 'g');
+            plot(peds(p).X, peds(p).Y, 'o', 'Color', 'g', 'MarkerSize', 8, 'MarkerFaceColor', 'g');
         end
         
-        xlim([-100, 800]);
-        ylim([-50, 50]);
+        xlim([-200, 800]);
+        ylim([-40, 40]);
         title(sprintf('%s Controller - Time: %.1fs', controller, time));
         xlabel('Position (m)');
         ylabel('Lateral Position (m)');
         
-        % Legend
-        h1 = plot(NaN, NaN, 's', 'Color', 'r', 'MarkerSize', 8, 'MarkerFaceColor', 'r');
-        h2 = plot(NaN, NaN, 's', 'Color', 'b', 'MarkerSize', 8, 'MarkerFaceColor', 'b');
-        h3 = plot(NaN, NaN, 'o', 'Color', 'g', 'MarkerSize', 6, 'MarkerFaceColor', 'g');
-        legend([h1, h2, h3], {'Lane 1 (L→R)', 'Lane 2 (R→L)', 'Pedestrians'}, 'Location', 'northeast');
+        % Simple legend
+        h1 = plot(NaN, NaN, 's', 'Color', 'r', 'MarkerSize', 10, 'MarkerFaceColor', 'r');
+        h2 = plot(NaN, NaN, 'o', 'Color', 'g', 'MarkerSize', 8, 'MarkerFaceColor', 'g');
+        legend([h1, h2], {'Cars (L→R)', 'Pedestrians'}, 'Location', 'northeast');
         
         grid on;
         drawnow;
