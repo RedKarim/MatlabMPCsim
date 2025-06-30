@@ -37,38 +37,22 @@ function PedestrianCrossing()
     printCrossingStats(IDM_data, MPC_data);
 end
 
-function data = runCrossingSim(controller, ncars_per_lane, npeds, dt, sim_time, ...
-    crossing_pos, lane1_y, lane2_y, crossing_width, ped_speed, ped_spawn_interval)
+function data = runCrossingSim(controller, ncars, npeds, dt, sim_time, ...
+    crossing_pos, lane_y, crossing_width, ped_speed, ped_spawn_interval)
     
     % Init cars
     cars = [];
     car_id = 1;
     
-    % Lane 1 cars (left to right)
-    for i = 1:ncars_per_lane
+    % Single lane cars (left to right)
+    for i = 1:ncars
         car = struct();
         car.id = car_id;
-        car.X = -200 - i*50;  % start positions
-        car.Y = lane1_y;
+        car.X = -200 - i*60;  % start positions with more spacing
+        car.Y = lane_y;
         car.V = 8 + randn()*2;  % some variation
         car.A = 0;
-        car.lane = 1;
         car.target_x = 1200;
-        car.active = true;
-        cars = [cars, car];
-        car_id = car_id + 1;
-    end
-    
-    % Lane 2 cars (right to left)  
-    for i = 1:ncars_per_lane
-        car = struct();
-        car.id = car_id; 
-        car.X = 1200 + i*50;
-        car.Y = lane2_y;
-        car.V = 8 + randn()*2;
-        car.A = 0;
-        car.lane = 2;
-        car.target_x = -200;
         car.active = true;
         cars = [cars, car];
         car_id = car_id + 1;
