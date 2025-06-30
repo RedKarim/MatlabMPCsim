@@ -196,7 +196,7 @@ function data = runCrossingSim(controller, ncars, npeds, dt, sim_time, ...
         
         % Update plot every few steps
         if mod(t, 10) == 0
-            updateCrossingPlot(cars, peds, crossing_pos, crossing_width, lane1_y, lane2_y, controller, time);
+            updateCrossingPlot(cars, peds, crossing_pos, crossing_width, lane_y, controller, time);
         end
         
         % Store data
