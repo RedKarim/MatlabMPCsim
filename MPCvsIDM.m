@@ -2,7 +2,7 @@ close all
 clear all
 
 %% Simulation Parameters
-num_cars = 30;           % Fixed number of cars
+num_cars = 20;           % Fixed number of cars
 dt = 0.5;                % Time step
 signal_position = 400;   % Single signal position
 simulation_end_pos = 800; % End simulation when cars reach this position
@@ -22,17 +22,22 @@ fprintf('Number of cars: %d\n', num_cars);
 fprintf('Signal position: %d m\n', signal_position);
 
 %% Run Simulation with IDM
-fprintf('\nRunning simulation with IDM controller...\n');
+fprintf('\n=== Starting IDM Controller Simulation ===\n');
+fprintf('Watch the animation window for real-time visualization...\n');
 [IDM_results] = runSimulation('IDM', num_cars, dt, signal_position, simulation_end_pos, cycle_length, green_duration, yellow_duration);
 
 %% Run Simulation with MPC
-fprintf('Running simulation with MPC controller...\n');
+fprintf('\n=== Starting MPC Controller Simulation ===\n');
+fprintf('Watch the animation window for real-time visualization...\n');
 [MPC_results] = runSimulation('MPC', num_cars, dt, signal_position, simulation_end_pos, cycle_length, green_duration, yellow_duration);
 
 %% Create Comparison Plots
+fprintf('\n=== Generating Comparison Analysis ===\n');
+fprintf('Creating detailed comparison plots...\n');
 createComparisonPlots(IDM_results, MPC_results, signal_position);
 
 %% Print Summary Statistics
+fprintf('\n=== Final Performance Analysis ===\n');
 printSummaryStats(IDM_results, MPC_results);
 
 %% Simulation Function
@@ -52,6 +57,27 @@ function [results] = runSimulation(controller_type, num_cars, dt, signal_positio
     b0 = 0.156;  b1 = 2.450e-2;  b2 = -7.415e-4;  b3 = 5.975e-5;
     c0 = 0.07224; c1 = 9.681e-2; c2 = 1.075e-3;
     
+    % Setup visualization
+    f = figure('Name', sprintf('%s Simulation', controller_type));
+    set(f, 'position', [400, 400, 800, 400]);
+    axis([0 simulation_end_pos 0 10]);
+    hold on;
+    
+    % Road
+    p_road = plot([0 simulation_end_pos], [4.5 4.5], 'LineWidth', 30, 'color', [0.5, 0.5, 0.5]);
+    
+    % Traffic signal
+    p_signal = plot(signal_position, 8, 'sr', 'MarkerSize', 15, 'MarkerFaceColor', 'r');
+    text(signal_position, 9, sprintf('Signal (%s)', controller_type), 'HorizontalAlignment', 'center');
+    
+    % Initialize car plot
+    p_cars = plot([], [], 'sr', 'MarkerSize', 10, 'MarkerFaceColor', [0.5, 0.1, 1]);
+    
+    % Title and labels
+    title(sprintf('%s Controller - Real-time Simulation', controller_type));
+    xlabel('Position (m)');
+    ylabel('Lane');
+    
     current_time = 0;
     t = 0;
     last_signal_state = "";
@@ -60,6 +86,7 @@ function [results] = runSimulation(controller_type, num_cars, dt, signal_positio
     while true
         t = t + 1;
         current_time = t * dt;
+        pause(0.01); % Animation timing
         
         % Traffic signal logic
         time_in_cycle = mod(current_time, cycle_length);
@@ -69,6 +96,14 @@ function [results] = runSimulation(controller_type, num_cars, dt, signal_positio
             signal_state = "yellow";
         else
             signal_state = "red";
+        end
+        
+        % Update signal color
+        state_to_color = struct('red', 'r', 'yellow', 'y', 'green', 'g');
+        try
+            set(p_signal, 'MarkerFaceColor', state_to_color.(signal_state));
+        catch
+            % Figure may have been closed, skip signal update
         end
         
         % Record green transitions
@@ -150,15 +185,39 @@ function [results] = runSimulation(controller_type, num_cars, dt, signal_positio
             end
             
             % Collect data for plotting
-            if cars(n).active
+            if cars(n).active && cars(n).X >= 0 && cars(n).X <= simulation_end_pos
                 X_plot(end+1) = cars(n).X;
                 V_plot(end+1) = cars(n).V;
                 A_plot(end+1) = cars(n).A;
             end
         end
         
+        % Update car visualization
+        try
+            delete(p_cars);
+            if ~isempty(X_plot)
+                p_cars = plot(X_plot, ones(size(X_plot))*5, 'sr', 'MarkerSize', 10, 'MarkerFaceColor', [0.5, 0.1, 1]);
+            else
+                p_cars = plot([], [], 'sr', 'MarkerSize', 10, 'MarkerFaceColor', [0.5, 0.1, 1]);
+            end
+            
+            % Update title with current time and signal state
+            title(sprintf('%s Controller - Time: %.1fs, Signal: %s', controller_type, current_time, upper(string(signal_state))));
+        catch
+            % Figure may have been closed, continue simulation without visualization
+        end
+        
         % Store simulation data
         CarData{end+1} = [current_time, X_plot, V_plot, A_plot];
+    end
+    
+    % Close animation figure
+    fprintf('Simulation complete for %s controller. Closing animation window...\n', controller_type);
+    pause(1); % Show final state for 1 second
+    try
+        close(f);
+    catch
+        % Figure may already be closed
     end
     
     % Process results
