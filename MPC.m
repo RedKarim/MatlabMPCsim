@@ -10,10 +10,10 @@ function [acc, x_opt] = MPC(Xh, Vh, Xp, Vp)
 %   x_opt - Full optimal trajectory (optional)
 
 %% MPC Parameters
-Umn = -7;    % Minimum acceleration
+Umn = -5;    % Minimum acceleration (less aggressive)
 Umx = 2;     % Maximum acceleration 
 dt = 0.5;    % Time step
-T = 20;      % Prediction horizon
+T = 10;      % Shorter prediction horizon for faster computation
 cx = 3*(T+1)-1; % Total dimension (X, V, A)
 
 %% Setup bounds
@@ -61,24 +61,56 @@ end
 xi(2*(T+1)+1:end) = a0;
 
 %% Setup inequality constraints (safety gap)
+% Check if this is a traffic signal scenario (Vp = 0 and close distance)
+gap_distance = Xp - Xh;
+if Vp == 0 && gap_distance < 50 && gap_distance > 0
+    % Traffic signal scenario - be more conservative
+    safety_gap = 5;
+else
+    % Normal car following
+    safety_gap = 3;
+end
+
 b = zeros(T,1);
-b(1:T,1) = XPT - 7;    % Gap with preceding vehicle
-b(1:3,1) = b(1:3,1) + 4; % Additional safety margin for first few steps
+b(1:T,1) = XPT - safety_gap;    % Gap with preceding vehicle/signal
 
 A = zeros(T,cx); 
 A(1:T,2:T+1) = eye(T);      % Position constraints
-A(1:T,T+3:2*T+2) = 0.5*eye(T); % Acceleration influence
 
-%% Solve optimization
-options = optimset('Algorithm','sqp','GradObj','off','Display','off');
-[x_opt,~,exitflag,~] = fmincon(@(x)ObjFn(x,XPT,T),xi,A,b,Aeq,Beq,lb,ub,[],options);
+%% Solve optimization with multiple attempts
+options = optimset('Algorithm','interior-point','Display','off','MaxIter',100,'TolFun',1e-3);
+
+% Try optimization with current initial guess
+[x_opt,~,exitflag,~] = fmincon(@(x)ObjFn(x,XPT,T,Xh,Vh,Xp,Vp),xi,A,b,Aeq,Beq,lb,ub,[],options);
+
+% If failed, try with simpler initial guess
+if exitflag <= 0
+    xi_simple = zeros(cx,1);
+    xi_simple(1) = Xh;
+    xi_simple(T+2) = Vh;
+    % Simple constant velocity prediction
+    for j = 1:T
+        xi_simple(j+1) = xi_simple(j) + Vh*dt;
+        xi_simple(T+1+j+1) = Vh;
+    end
+    [x_opt,~,exitflag,~] = fmincon(@(x)ObjFn(x,XPT,T,Xh,Vh,Xp,Vp),xi_simple,A,b,Aeq,Beq,lb,ub,[],options);
+end
 
 %% Extract optimal acceleration for current timestep
 if exitflag > 0
     acc = x_opt(2*T+3);  % First acceleration command
 else
-    acc = 0;  % Fallback if optimization fails
-    warning('MPC optimization failed, using zero acceleration');
+    % Fallback using simple IDM-like behavior
+    gap_distance = Xp - Xh;
+    if gap_distance > 0
+        % Simple proportional controller for fallback
+        desired_gap = 10;
+        gap_error = gap_distance - desired_gap;
+        acc = 0.5 * gap_error / 10;  % Proportional control
+        acc = max(min(acc, Umx), Umn);  % Bound acceleration
+    else
+        acc = 0;
+    end
 end
 
 % Bound the acceleration output
@@ -90,28 +122,45 @@ end
 
 end
 
-function cost = ObjFn(x, XPT, T)
-% Objective function for MPC optimization
-% Minimize tracking error and control effort
+function cost = ObjFn(x, XPT, T, Xh, Vh, Xp, Vp)
+% Improved objective function for traffic signal optimization
+% Focus on smooth operation with minimal time at signals
 
 % Extract variables
 pos = x(2:T+1);           % Positions (skip initial position)
 vel = x(T+3:2*T+2);       % Velocities (skip initial velocity)
 acc = x(2*T+3:end);       % Accelerations
 
-% Weights
-w_pos = 1;      % Position tracking weight
-w_vel = 10;     % Velocity tracking weight  
-w_acc = 0.1;    % Acceleration smoothness weight
-
-% Target velocity (cruise speed)
-v_target = 11;
+% Adaptive weights based on scenario
+gap_distance = Xp - Xh;
+if Vp == 0 && gap_distance < 50 && gap_distance > 0
+    % Traffic signal scenario - prioritize smooth approach
+    w_vel = 5;      % Moderate velocity tracking
+    w_acc = 2;      % Emphasize smooth acceleration
+    w_jerk = 1;     % Minimize jerk for comfort
+    v_target = min(8, Vh + 2);  % Conservative target speed
+else
+    % Normal following scenario
+    w_vel = 10;     % Higher velocity tracking
+    w_acc = 0.5;    % Less emphasis on acceleration
+    w_jerk = 0.1;   % Minimal jerk weight
+    v_target = 11;  % Normal cruise speed
+end
 
 % Cost components
-pos_cost = w_pos * sum((pos - (XPT - 7)).^2);  % Track preceding vehicle with gap
 vel_cost = w_vel * sum((vel - v_target).^2);   % Track target velocity
 acc_cost = w_acc * sum(acc.^2);                % Minimize acceleration effort
 
-cost = pos_cost + vel_cost + acc_cost;
+% Jerk minimization (acceleration smoothness)
+jerk_cost = 0;
+if length(acc) > 1
+    jerk = diff(acc);
+    jerk_cost = w_jerk * sum(jerk.^2);
+end
+
+% Penalty for stopping (encourage smooth flow)
+stop_penalty = sum((vel < 1).^2) * 5;
+
+cost = vel_cost + acc_cost + jerk_cost + stop_penalty;
 
 end
