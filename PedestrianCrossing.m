@@ -269,15 +269,10 @@ function clear = checkCrossingClear(car, peds, crossing_pos, crossing_width)
         % Check if pedestrian is in or near crossing area
         if abs(peds(p).X - crossing_pos) < crossing_width/2 + buffer
             % Check if pedestrian is crossing the car's lane
-            if (car.lane == 1 && abs(peds(p).Y - car.Y) < 5) || ...
-               (car.lane == 2 && abs(peds(p).Y - car.Y) < 5)
+            if abs(peds(p).Y - car.Y) < 8  % within lane area
                 
-                % Check time to collision
-                if car.lane == 1  % left to right
-                    car_time_to_ped = (peds(p).X - car.X) / max(car.V, 0.1);
-                else  % right to left
-                    car_time_to_ped = (car.X - peds(p).X) / max(car.V, 0.1);
-                end
+                % Check time to collision (left to right)
+                car_time_to_ped = (peds(p).X - car.X) / max(car.V, 0.1);
                 
                 % If car will reach pedestrian area soon, not clear
                 if car_time_to_ped > 0 && car_time_to_ped < 8
