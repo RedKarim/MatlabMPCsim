@@ -7,27 +7,36 @@ function PedestrianCrossing()
     dt = 0.1;
     sim_time = 60;
     ncars = 6;
-    npeds = 2;
     
     % road stuff
     road_len = 800;
     cross_pos = 250;
     cross_width = 25;
     ped_speed = 1.5;
-    spawn_time = 25;
+    
+    % create fixed pedestrian spawn pattern for fair comparison
+    ped_events = struct('time', {}, 'x', {}, 'y', {}, 'vy', {});
+    ped_events(1) = struct('time', 12, 'x', cross_pos - 2, 'y', -20, 'vy', ped_speed);
+    ped_events(2) = struct('time', 28, 'x', cross_pos + 3, 'y', 20, 'vy', -ped_speed);
+    ped_events(3) = struct('time', 45, 'x', cross_pos - 1, 'y', -20, 'vy', ped_speed);
     
     fprintf('Running sims...\n');
+    fprintf('Pedestrians spawn at: ');
+    for i = 1:length(ped_events)
+        fprintf('%.1fs ', ped_events(i).time);
+    end
+    fprintf('\n');
     
-    % run both
-    idm_data = runSim('IDM', ncars, npeds, dt, sim_time, cross_pos, cross_width, ped_speed, spawn_time);
-    mpc_data = runSim('MPC', ncars, npeds, dt, sim_time, cross_pos, cross_width, ped_speed, spawn_time);
+    % run both with same pedestrian pattern
+    idm_data = runSim('IDM', ncars, dt, sim_time, cross_pos, cross_width, ped_events);
+    mpc_data = runSim('MPC', ncars, dt, sim_time, cross_pos, cross_width, ped_events);
     
     % results
     plotResults(idm_data, mpc_data);
     showStats(idm_data, mpc_data);
 end
 
-function data = runSim(controller, ncars, npeds, dt, sim_time, cross_pos, cross_width, ped_speed, spawn_time)
+function data = runSim(controller, ncars, dt, sim_time, cross_pos, cross_width, ped_events)
     
     % init cars
     cars = [];
@@ -43,9 +52,9 @@ function data = runSim(controller, ncars, npeds, dt, sim_time, cross_pos, cross_
     end
     
     % init peds
-    peds = [];
+    peds = struct('id', {}, 'x', {}, 'y', {}, 'vy', {}, 'target', {}, 'active', {});
     ped_count = 0;
-    last_spawn = -spawn_time;
+    next_ped_event = 1;
     
     % data storage
     car_hist = struct();
@@ -68,32 +77,32 @@ function data = runSim(controller, ncars, npeds, dt, sim_time, cross_pos, cross_
     for t = 1:steps
         time = t * dt;
         
-        % spawn peds
-        if time - last_spawn >= spawn_time && length(peds) < npeds
-            ped.id = ped_count + 1;
-            ped.x = cross_pos + (rand()-0.5)*8;
-            if rand() > 0.5
-                ped.y = -20;
-                ped.vy = ped_speed;
-                ped.target = 20;
-            else
-                ped.y = 20;
-                ped.vy = -ped_speed;
-                ped.target = -20;
-            end
-            ped.active = true;
-            peds = [peds, ped];
+        % spawn peds from predefined events
+        if next_ped_event <= length(ped_events) && time >= ped_events(next_ped_event).time
+            event = ped_events(next_ped_event);
             ped_count = ped_count + 1;
-            last_spawn = time;
+            peds(ped_count).id = ped_count;
+            peds(ped_count).x = event.x;
+            peds(ped_count).y = event.y;
+            peds(ped_count).vy = event.vy;
+            if event.vy > 0
+                peds(ped_count).target = 20;
+            else
+                peds(ped_count).target = -20;
+            end
+            peds(ped_count).active = true;
+            next_ped_event = next_ped_event + 1;
         end
         
         % update peds
-        for p = 1:length(peds)
-            if peds(p).active
-                peds(p).y = peds(p).y + peds(p).vy * dt;
-                if (peds(p).vy > 0 && peds(p).y >= peds(p).target) || ...
-                   (peds(p).vy < 0 && peds(p).y <= peds(p).target)
-                    peds(p).active = false;
+        if ~isempty(peds)
+            for p = 1:length(peds)
+                if peds(p).active
+                    peds(p).y = peds(p).y + peds(p).vy * dt;
+                    if (peds(p).vy > 0 && peds(p).y >= peds(p).target) || ...
+                       (peds(p).vy < 0 && peds(p).y <= peds(p).target)
+                        peds(p).active = false;
+                    end
                 end
             end
         end
@@ -199,7 +208,11 @@ function data = runSim(controller, ncars, npeds, dt, sim_time, cross_pos, cross_
         
         % store frame data
         active_c = find([cars.active]);
-        active_p = find([peds.active]);
+        if ~isempty(peds)
+            active_p = find([peds.active]);
+        else
+            active_p = [];
+        end
         frame_data = [time, length(active_c), length(active_p)];
         for c = active_c
             frame_data = [frame_data, cars(c).x, cars(c).v, cars(c).a];
@@ -238,28 +251,30 @@ end
 function danger = checkPeds(car, peds, cross_pos, cross_width)
     danger = false;
     
-    for p = 1:length(peds)
-        if ~peds(p).active
-            continue;
-        end
-        
-        % limited detection zone - cars can't see too far
-        if abs(peds(p).x - cross_pos) < cross_width/2 + 12
-            % check if ped in danger zone
-            if abs(peds(p).y) < 12
-                car_time = (cross_pos - car.x) / max(car.v, 0.1);
-                ped_future_y = peds(p).y + peds(p).vy * car_time;
-                
-                % realistic collision prediction
-                if abs(ped_future_y) < 8 && car_time < 6 && car_time > 0
-                    danger = true;
-                    break;
-                end
-                
-                % stop if ped very close to road
-                if abs(peds(p).y) < 6
-                    danger = true;
-                    break;
+    if ~isempty(peds)
+        for p = 1:length(peds)
+            if ~peds(p).active
+                continue;
+            end
+            
+            % limited detection zone - cars can't see too far
+            if abs(peds(p).x - cross_pos) < cross_width/2 + 12
+                % check if ped in danger zone
+                if abs(peds(p).y) < 12
+                    car_time = (cross_pos - car.x) / max(car.v, 0.1);
+                    ped_future_y = peds(p).y + peds(p).vy * car_time;
+                    
+                    % realistic collision prediction
+                    if abs(ped_future_y) < 8 && car_time < 6 && car_time > 0
+                        danger = true;
+                        break;
+                    end
+                    
+                    % stop if ped very close to road
+                    if abs(peds(p).y) < 6
+                        danger = true;
+                        break;
+                    end
                 end
             end
         end
@@ -314,9 +329,11 @@ function drawSim(cars, peds, cross_pos, cross_width, controller, time)
     end
     
     % peds
-    active_peds = find([peds.active]);
-    for p = active_peds
-        plot(peds(p).x, peds(p).y, 'o', 'MarkerSize', 7, 'Color', 'g', 'MarkerFaceColor', 'g');
+    if ~isempty(peds)
+        active_peds = find([peds.active]);
+        for p = active_peds
+            plot(peds(p).x, peds(p).y, 'o', 'MarkerSize', 7, 'Color', 'g', 'MarkerFaceColor', 'g');
+        end
     end
     
     xlim([-50, 450]);
