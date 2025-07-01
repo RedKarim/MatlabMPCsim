@@ -257,7 +257,7 @@ function results = processData(car_data, car_history, green_times, controller, d
         hist = car_history.(car_ids{i});
         fuel_per_car(i) = sum(hist.fuel) * dt;
         vel_per_car(i) = mean(hist.v);
-        idle_per_car(i) = sum(hist.v < 0.1) * dt;
+        idle_per_car(i) = sum(hist.v < 1.5) * dt;
     end
     
     % pack results
