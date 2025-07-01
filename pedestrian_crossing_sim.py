@@ -32,16 +32,40 @@ class PedestrianCrossingSim:
         ]
         
         print(f"Pedestrians spawn at: {[e['time'] for e in self.ped_events]}s")
+    
+    def generate_initial_conditions(self):
+        """Generate identical initial conditions for all cars"""
+        np.random.seed(42)  # Fixed seed for reproducibility
+        initial_conditions = []
+        
+        for i in range(self.ncars):
+            car_init = {
+                'id': i + 1,
+                'x': -30 - i * 35,
+                'y': 0,
+                'v': 8 + np.random.normal(0, 0.5),
+                'a': 0,
+                'active': True,
+                'stopped': False
+            }
+            initial_conditions.append(car_init)
+        
+        return initial_conditions
         
     def run_comparison(self):
         print("Running Pedestrian Crossing: IDM vs MPC (CasADi)")
         
-        # Run both simulations with same pedestrian pattern
+        # Generate identical initial conditions for fair comparison
+        initial_conditions = self.generate_initial_conditions()
+        init_speeds = [f"Car{i+1}: {ic['v']:.2f}m/s" for i, ic in enumerate(initial_conditions)]
+        print(f"Initial conditions: {init_speeds}")
+        
+        # Run both simulations with same initial conditions
         print("Running IDM simulation...")
-        idm_data = self.run_simulation('IDM')
+        idm_data = self.run_simulation('IDM', initial_conditions)
         
         print("Running MPC simulation...")
-        mpc_data = self.run_simulation('MPC')
+        mpc_data = self.run_simulation('MPC', initial_conditions)
         
         # Compare results
         self.plot_results(idm_data, mpc_data)
@@ -51,18 +75,18 @@ class PedestrianCrossingSim:
         print("\nShowing animated simulation...")
         self.animate_simulation(idm_data, mpc_data)
         
-    def run_simulation(self, controller):
-        # Initialize cars
+    def run_simulation(self, controller, initial_conditions):
+        # Initialize cars with provided initial conditions
         cars = []
-        for i in range(self.ncars):
+        for i, init_car in enumerate(initial_conditions):
             car = {
-                'id': i + 1,
-                'x': -30 - i * 35,
-                'y': 0,
-                'v': 8 + np.random.normal(0, 0.5),
-                'a': 0,
-                'active': True,
-                'stopped': False
+                'id': init_car['id'],
+                'x': init_car['x'],
+                'y': init_car['y'],
+                'v': init_car['v'],
+                'a': init_car['a'],
+                'active': init_car['active'],
+                'stopped': init_car['stopped']
             }
             cars.append(car)
         
@@ -211,23 +235,31 @@ class PedestrianCrossingSim:
     
     def check_peds(self, car, peds):
         """Check if there's pedestrian danger"""
+        # Only check for pedestrians if car hasn't passed the crossing yet
+        if car['x'] > self.cross_pos + self.cross_width/2:
+            return False  # Car has already passed the crossing
+        
         for ped in peds:
             if not ped['active']:
                 continue
                 
-            # Limited detection zone
+            # Limited detection zone - only consider pedestrians at/near the crossing
             if abs(ped['x'] - self.cross_pos) < self.cross_width/2 + 12:
                 if abs(ped['y']) < 12:
+                    # Calculate time for car to reach crossing
                     car_time = (self.cross_pos - car['x']) / max(car['v'], 0.1)
-                    ped_future_y = ped['y'] + ped['vy'] * car_time
                     
-                    # Collision prediction
-                    if (abs(ped_future_y) < 8 and car_time < 6 and car_time > 0):
-                        return True
-                    
-                    # Stop if pedestrian very close to road
-                    if abs(ped['y']) < 6:
-                        return True
+                    # Only consider pedestrians if car is approaching (positive time)
+                    if car_time > 0:
+                        ped_future_y = ped['y'] + ped['vy'] * car_time
+                        
+                        # Collision prediction
+                        if (abs(ped_future_y) < 8 and car_time < 6):
+                            return True
+                        
+                        # Stop if pedestrian very close to road
+                        if abs(ped['y']) < 6:
+                            return True
         return False
     
     def find_leader(self, cars, car_idx, active_cars):
