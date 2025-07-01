@@ -5,7 +5,7 @@ clear all
 ncars = 20;
 dt = 0.5;
 sig_pos = 400;
-end_pos = 800;
+end_pos = 1800;
 
 % signal stuff  
 cycle_time = 45;
@@ -67,10 +67,11 @@ function results = runSim(controller, ncars, dt, sig_pos, end_pos, cycle_time, g
     time = 0;
     t = 0;
     last_state = "";
-    
-    while true
+    Tmax = 240;
+    for time=1:Tmax
         t = t + 1;
         time = t * dt;
+        
         pause(0.01);
         
         % signal
