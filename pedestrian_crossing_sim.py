@@ -16,7 +16,7 @@ class PedestrianCrossingSim:
     def __init__(self):
         # Simulation parameters
         self.dt = 0.1
-        self.sim_time = 60
+        self.sim_time = 100
         self.ncars = 6
         
         # Road layout
@@ -281,10 +281,10 @@ class PedestrianCrossingSim:
         """Simple IDM controller"""
         # IDM parameters
         v0 = 9        # Desired speed
-        T = 1.5        # Time headway
+        T = 2        # Time headway
         a_max = 2      # Max acceleration
         b = 3          # Comfortable deceleration
-        s0 = 2         # Minimum gap
+        s0 = 8         # Minimum gap
         delta = 4      # Acceleration exponent
         
         if x_lead == x_ego + 500:  # Free driving case
@@ -324,7 +324,7 @@ class PedestrianCrossingSim:
     
     def plot_results(self, idm_data, mpc_data):
         """Plot comparison results"""
-        fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
         fig.suptitle('Pedestrian Crossing: IDM vs MPC Comparison (CasADi)', fontsize=14)
         
         # Position plots
@@ -342,30 +342,15 @@ class PedestrianCrossingSim:
         axes[1,0].set_ylabel('Position (m)')
         axes[1,0].grid(True)
         
-        # Speed plots
-        axes[0,1].set_title('IDM Speeds')
-        for i, (car_id, data) in enumerate(list(idm_data['cars'].items())[:4]):
-            axes[0,1].plot(data['t'], data['v'], 'r-', alpha=0.7)
-        axes[0,1].set_xlabel('Time (s)')
-        axes[0,1].set_ylabel('Speed (m/s)')
-        axes[0,1].grid(True)
-        
-        axes[1,1].set_title('MPC Speeds')
-        for i, (car_id, data) in enumerate(list(mpc_data['cars'].items())[:4]):
-            axes[1,1].plot(data['t'], data['v'], 'b-', alpha=0.7)
-        axes[1,1].set_xlabel('Time (s)')
-        axes[1,1].set_ylabel('Speed (m/s)')
-        axes[1,1].grid(True)
-        
         # Fuel comparison
-        axes[0,2].bar(['IDM', 'MPC'], [idm_data['stats']['total_fuel'], mpc_data['stats']['total_fuel']])
-        axes[0,2].set_title('Total Fuel Usage')
-        axes[0,2].set_ylabel('Fuel (L)')
+        axes[0,1].bar(['IDM', 'MPC'], [idm_data['stats']['total_fuel'], mpc_data['stats']['total_fuel']])
+        axes[0,1].set_title('Total Fuel Usage')
+        axes[0,1].set_ylabel('Fuel (L)')
         
         # Speed comparison
-        axes[1,2].bar(['IDM', 'MPC'], [idm_data['stats']['avg_speed'], mpc_data['stats']['avg_speed']])
-        axes[1,2].set_title('Average Speed')
-        axes[1,2].set_ylabel('Speed (m/s)')
+        axes[1,1].bar(['IDM', 'MPC'], [idm_data['stats']['avg_speed'], mpc_data['stats']['avg_speed']])
+        axes[1,1].set_title('Average Speed')
+        axes[1,1].set_ylabel('Speed (m/s)')
         
         plt.tight_layout()
         plt.show()
