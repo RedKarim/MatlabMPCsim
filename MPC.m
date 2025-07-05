@@ -9,11 +9,11 @@ function [acc, x_opt] = MPC(Xh, Vh, Xp, Vp)
 %   acc - Optimal acceleration for current timestep
 %   x_opt - Full optimal trajectory (optional)
 
-%% MPC Parameters
-Umn = -5;    % Minimum acceleration (less aggressive)
+%% MPC Parameters - match Python behavior
+Umn = -5;    % Minimum acceleration
 Umx = 2;     % Maximum acceleration 
 dt = 0.5;    % Time step
-T = 10;      % Shorter prediction horizon for faster computation
+T = 8;       % Prediction horizon (match Python CasADiMPC)
 cx = 3*(T+1)-1; % Total dimension (X, V, A)
 
 %% Setup bounds
@@ -22,7 +22,7 @@ ub = lb;
 lb(1:T+1) = -Inf;      % Position limits
 ub(1:T+1) = Inf;
 lb(T+2:2*T+2) = 0;     % Minimum speed
-ub(T+2:2*T+2) = 18;    % Maximum speed
+ub(T+2:2*T+2) = 18;    % Maximum speed (match Python)
 lb(2*T+3:end) = Umn;   % Minimum acceleration
 ub(2*T+3:end) = Umx;   % Maximum acceleration
 
@@ -45,6 +45,21 @@ Beq = zeros(cx,1);
 Beq(1) = -Xh;   % Initial position
 Beq(T+2) = -Vh; % Initial velocity
 
+%% Determine target velocity based on scenario (match Python logic)
+if Vp == 0 && (Xp - Xh) < 50 && (Xp - Xh) > 0
+    % Traffic signal/pedestrian scenario - be more conservative
+    v_target = min(8, Vh + 2);  % Conservative target speed
+    safety_gap = 5;
+elseif Xp == Xh + 500
+    % Free driving scenario
+    v_target = 9;  % Match Python free driving target
+    safety_gap = 3;
+else
+    % Normal car following
+    v_target = min(Vp, 11);  % Match Python car following
+    safety_gap = 3;
+end
+
 %% Predicted trajectory of preceding vehicle
 XPT = Xp + ((1:T)*Vp*dt)';
 
@@ -61,16 +76,6 @@ end
 xi(2*(T+1)+1:end) = a0;
 
 %% Setup inequality constraints (safety gap)
-% Check if this is a traffic signal scenario (Vp = 0 and close distance)
-gap_distance = Xp - Xh;
-if Vp == 0 && gap_distance < 50 && gap_distance > 0
-    % Traffic signal scenario - be more conservative
-    safety_gap = 5;
-else
-    % Normal car following
-    safety_gap = 3;
-end
-
 b = zeros(T,1);
 b(1:T,1) = XPT - safety_gap;    % Gap with preceding vehicle/signal
 
@@ -81,7 +86,7 @@ A(1:T,2:T+1) = eye(T);      % Position constraints
 options = optimset('Algorithm','interior-point','Display','off','MaxIter',100,'TolFun',1e-3);
 
 % Try optimization with current initial guess
-[x_opt,~,exitflag,~] = fmincon(@(x)ObjFn(x,XPT,T,Xh,Vh,Xp,Vp),xi,A,b,Aeq,Beq,lb,ub,[],options);
+[x_opt,~,exitflag,~] = fmincon(@(x)ObjFn(x,XPT,T,Xh,Vh,Xp,Vp,v_target),xi,A,b,Aeq,Beq,lb,ub,[],options);
 
 % If failed, try with simpler initial guess
 if exitflag <= 0
@@ -93,14 +98,14 @@ if exitflag <= 0
         xi_simple(j+1) = xi_simple(j) + Vh*dt;
         xi_simple(T+1+j+1) = Vh;
     end
-    [x_opt,~,exitflag,~] = fmincon(@(x)ObjFn(x,XPT,T,Xh,Vh,Xp,Vp),xi_simple,A,b,Aeq,Beq,lb,ub,[],options);
+    [x_opt,~,exitflag,~] = fmincon(@(x)ObjFn(x,XPT,T,Xh,Vh,Xp,Vp,v_target),xi_simple,A,b,Aeq,Beq,lb,ub,[],options);
 end
 
 %% Extract optimal acceleration for current timestep
 if exitflag > 0
     acc = x_opt(2*T+3);  % First acceleration command
 else
-    % Fallback using simple IDM-like behavior
+    % Fallback using simple proportional controller (match Python fallback)
     gap_distance = Xp - Xh;
     if gap_distance > 0
         % Simple proportional controller for fallback
@@ -122,8 +127,8 @@ end
 
 end
 
-function cost = ObjFn(x, XPT, T, Xh, Vh, Xp, Vp)
-% Improved objective function for traffic signal optimization
+function cost = ObjFn(x, XPT, T, Xh, Vh, Xp, Vp, v_target)
+% Improved objective function matching Python behavior
 % Focus on smooth operation with minimal time at signals
 
 % Extract variables
@@ -131,23 +136,21 @@ pos = x(2:T+1);           % Positions (skip initial position)
 vel = x(T+3:2*T+2);       % Velocities (skip initial velocity)
 acc = x(2*T+3:end);       % Accelerations
 
-% Adaptive weights based on scenario
+% Adaptive weights based on scenario (match Python weights)
 gap_distance = Xp - Xh;
 if Vp == 0 && gap_distance < 50 && gap_distance > 0
     % Traffic signal scenario - prioritize smooth approach
     w_vel = 5;      % Moderate velocity tracking
     w_acc = 2;      % Emphasize smooth acceleration
     w_jerk = 1;     % Minimize jerk for comfort
-    v_target = min(8, Vh + 2);  % Conservative target speed
 else
     % Normal following scenario
     w_vel = 10;     % Higher velocity tracking
     w_acc = 0.5;    % Less emphasis on acceleration
     w_jerk = 0.1;   % Minimal jerk weight
-    v_target = 11;  % Normal cruise speed
 end
 
-% Cost components
+% Cost components (match Python cost structure)
 vel_cost = w_vel * sum((vel - v_target).^2);   % Track target velocity
 acc_cost = w_acc * sum(acc.^2);                % Minimize acceleration effort
 
