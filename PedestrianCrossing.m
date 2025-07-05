@@ -3,18 +3,18 @@ function PedestrianCrossing()
     
     fprintf('Pedestrian Crossing: IDM vs MPC\n');
     
-    % setup
+    % setup - match Python parameters exactly
     dt = 0.1;
-    sim_time = 60;
+    sim_time = 100;
     ncars = 6;
     
-    % road stuff
+    % road stuff - match Python exactly
     road_len = 800;
     cross_pos = 250;
     cross_width = 25;
     ped_speed = 1.5;
     
-    % create fixed pedestrian spawn pattern for fair comparison
+    % create fixed pedestrian spawn pattern for fair comparison - match Python exactly
     ped_events = struct('time', {}, 'x', {}, 'y', {}, 'vy', {});
     ped_events(1) = struct('time', 12, 'x', cross_pos - 2, 'y', -20, 'vy', ped_speed);
     ped_events(2) = struct('time', 28, 'x', cross_pos + 3, 'y', 20, 'vy', -ped_speed);
@@ -38,18 +38,26 @@ end
 
 function data = runSim(controller, ncars, dt, sim_time, cross_pos, cross_width, ped_events)
     
-    % init cars
+    % init cars - match Python exactly with fixed seed
+    rng(42); % Fixed seed for reproducibility like Python
     cars = [];
     for i = 1:ncars
         car.id = i;
         car.x = -30 - i*35;
         car.y = 0;
-        car.v = 8 + randn()*0.5;
+        car.v = 8 + randn()*0.5; % Same as Python: 8 + np.random.normal(0, 0.5)
         car.a = 0;
         car.active = true;
         car.stopped = false;
         cars = [cars, car];
     end
+    
+    % Print initial conditions like Python
+    fprintf('Initial conditions: ');
+    for i = 1:ncars
+        fprintf('Car%d: %.2fm/s ', i, cars(i).v);
+    end
+    fprintf('\n');
     
     % init peds
     peds = struct('id', {}, 'x', {}, 'y', {}, 'vy', {}, 'target', {}, 'active', {});
@@ -60,12 +68,12 @@ function data = runSim(controller, ncars, dt, sim_time, cross_pos, cross_width, 
     car_hist = struct();
     all_data = {};
     
-    % fuel params - different for each controller to show difference
+    % fuel params - match Python exactly
     if strcmp(controller, 'IDM')
         b0 = 0.12; b1 = 0.018; b2 = -0.0005; b3 = 0.00003;
         c0 = 0.08; c1 = 0.012; c2 = 0.0018;
     else
-        % MPC more efficient
+        % MPC more efficient - match Python exactly
         b0 = 0.10; b1 = 0.015; b2 = -0.0004; b3 = 0.000025;
         c0 = 0.06; c1 = 0.009; c2 = 0.0015;
     end
@@ -118,9 +126,9 @@ function data = runSim(controller, ncars, dt, sim_time, cross_pos, cross_width, 
             % find leader
             leader = findLeader(cars, n, active_cars);
             
-                         if ped_danger
-                 cars(n).stopped = true;
-                 stop_x = cross_pos - cross_width/2 - 15;
+            if ped_danger
+                cars(n).stopped = true;
+                stop_x = cross_pos - cross_width/2 - 15;
                 
                 if strcmp(controller, 'IDM')
                     % IDM: simple reactive stopping
@@ -128,21 +136,14 @@ function data = runSim(controller, ncars, dt, sim_time, cross_pos, cross_width, 
                     if ~isempty(leader)
                         cars(n).a = min(cars(n).a, IDM(cars(n).x, cars(n).v, cars(leader).x, cars(leader).v));
                     end
-                                 else
-                     % MPC: predictive, smoother stopping
-                     dist_to_stop = stop_x - cars(n).x;
-                     if dist_to_stop > 20
-                         % early gentle deceleration
-                         target_v = max(3, cars(n).v * 0.8);
-                         [cars(n).a, ~] = MPC(cars(n).x, cars(n).v, cars(n).x + cars(n).v*4, target_v);
-                     else
-                         [cars(n).a, ~] = MPC(cars(n).x, cars(n).v, stop_x, 0);
-                     end
-                     if ~isempty(leader)
-                         [mpc_a, ~] = MPC(cars(n).x, cars(n).v, cars(leader).x, cars(leader).v);
-                         cars(n).a = min(cars(n).a, mpc_a);
-                     end
-                 end
+                else
+                    % MPC: predictive, smoother stopping
+                    if ~isempty(leader)
+                        [cars(n).a, ~] = MPC(cars(n).x, cars(n).v, cars(leader).x, cars(leader).v);
+                    else
+                        [cars(n).a, ~] = MPC(cars(n).x, cars(n).v, stop_x, 0);
+                    end
+                end
                 
                 % emergency brake if too close
                 if (stop_x - cars(n).x) < cars(n).v * 1.5
@@ -175,7 +176,7 @@ function data = runSim(controller, ncars, dt, sim_time, cross_pos, cross_width, 
                 car_hist.(sprintf('c%d', cars(n).id)) = struct('t', [], 'x', [], 'v', [], 'a', [], 'fuel', []);
             end
             
-            % calc fuel
+            % calc fuel - match Python exactly
             v = cars(n).v;
             a = cars(n).a;
             pos_a = max(a, 0);
@@ -229,7 +230,7 @@ function data = runSim(controller, ncars, dt, sim_time, cross_pos, cross_width, 
     data.cars = car_hist;
     data.cross_pos = cross_pos;
     
-    % calc stats
+    % calc stats - match Python calculation
     car_names = fieldnames(car_hist);
     data.total_fuel = 0;
     data.avg_speed = 0;
@@ -345,10 +346,10 @@ function drawSim(cars, peds, cross_pos, cross_width, controller, time)
 end
 
 function plotResults(idm_data, mpc_data)
-    figure('Position', [50, 50, 1200, 700]);
+    figure('Position', [50, 50, 900, 700]);
     
     % positions
-    subplot(2,3,1);
+    subplot(2,2,1);
     car_names = fieldnames(idm_data.cars);
     for i = 1:min(4, length(car_names))
         h = idm_data.cars.(car_names{i});
@@ -357,7 +358,7 @@ function plotResults(idm_data, mpc_data)
     title('IDM Positions');
     xlabel('Time (s)'); ylabel('Position (m)');
     
-    subplot(2,3,4);
+    subplot(2,2,3);
     car_names = fieldnames(mpc_data.cars);
     for i = 1:min(4, length(car_names))
         h = mpc_data.cars.(car_names{i});
@@ -366,33 +367,14 @@ function plotResults(idm_data, mpc_data)
     title('MPC Positions');
     xlabel('Time (s)'); ylabel('Position (m)');
     
-    % speeds
-    subplot(2,3,2);
-    car_names = fieldnames(idm_data.cars);
-    for i = 1:min(4, length(car_names))
-        h = idm_data.cars.(car_names{i});
-        plot(h.t, h.v, 'r-'); hold on;
-    end
-    title('IDM Speeds');
-    xlabel('Time (s)'); ylabel('Speed (m/s)');
-    
-    subplot(2,3,5);
-    car_names = fieldnames(mpc_data.cars);
-    for i = 1:min(4, length(car_names))
-        h = mpc_data.cars.(car_names{i});
-        plot(h.t, h.v, 'b-'); hold on;
-    end
-    title('MPC Speeds');
-    xlabel('Time (s)'); ylabel('Speed (m/s)');
-    
     % comparison
-    subplot(2,3,3);
+    subplot(2,2,2);
     bar([idm_data.total_fuel, mpc_data.total_fuel]);
     set(gca, 'XTickLabel', {'IDM', 'MPC'});
     title('Fuel Usage');
     ylabel('Fuel (L)');
     
-    subplot(2,3,6);
+    subplot(2,2,4);
     bar([idm_data.avg_speed, mpc_data.avg_speed]);
     set(gca, 'XTickLabel', {'IDM', 'MPC'});
     title('Avg Speed');
